@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>CS2 Colgantes Monitor</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    margin: 0;
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .stats { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .controls {
+    display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  select, input, button {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  button.primary {
+    background: var(--accent);
+    color: #000;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+  th { position: sticky; top: 0; background: var(--panel); cursor: pointer; }
+  tr:hover { background: #1c2128; }
+  .price { text-align: right; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px;
+    background: #21262d; color: var(--muted);
+  }
+  #results { margin-top: 24px; }
+  .result-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; margin-bottom: 10px;
+  }
+  .profit-pos { color: var(--green); font-weight: 700; }
+  .profit-neg { color: var(--red); }
+  .table-wrap { max-height: 65vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+  #loading-banner {
+    display: none; background: #3a2f0b; color: #f0c419; padding: 8px 12px;
+    border-radius: 6px; margin-bottom: 12px; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<h1>CS2 Colgantes Monitor — Austin 2025 / Budapest 2025 / Cologne 2026</h1>
+<div class="stats" id="stats">Cargando estadísticas...</div>
+<div id="loading-banner">Comparando colgantes seleccionados contra el mercado en vivo... esto puede tardar.</div>
+
+<div class="controls">
+  <select id="eventFilter">
+    <option value="">Todos los eventos</option>
+    <option value="Austin 2025">Austin 2025</option>
+    <option value="Budapest 2025">Budapest 2025</option>
+    <option value="Cologne 2026">Cologne 2026</option>
+  </select>
+  <input id="search" placeholder="Buscar jugador, mapa, equipo..." style="width:220px">
+  <button id="refreshBtn">Refrescar lista</button>
+  <a id="exportBtn" href="/api/export" download="charms_backup.json"><button>Descargar respaldo (JSON)</button></a>
+  <span class="muted">|</span>
+  <span id="selectedCount" class="muted">0 seleccionados</span>
+  <button class="primary" id="compareBtn" disabled>Ver listados del mercado con este colgante</button>
+</div>
+<div class="muted" style="font-size:12px; margin-bottom:8px;">
+  Nota: el cálculo automático de "ganancia" está en pausa. Este botón solo muestra los listados activos para que compares tú mismo contra el precio base.
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th style="width:28px;"><input type="checkbox" id="selectAll"></th>
+      <th>Nombre</th>
+      <th data-sort="event">Evento</th>
+      <th data-sort="map">Mapa</th>
+      <th data-sort="player">Jugador</th>
+      <th>Partido</th>
+      <th data-sort="stage">Etapa</th>
+      <th data-sort="base_price" class="price">Precio base</th>
+      <th>Actualizado</th>
+    </tr>
+  </thead>
+  <tbody id="charmsBody"></tbody>
+</table>
+</div>
+
+<div id="results"></div>
+
+<script>
+let allCharms = [];
+let sortKey = "base_price";
+let sortDir = -1;
+
+async function loadStats() {
+  const res = await fetch("/api/stats");
+  const s = await res.json();
+  document.getElementById("stats").textContent =
+    `${s.priced} / ${s.total} colgantes con precio | última actualización: ${s.newest_update || "aún ninguna"}`;
+}
+
+async function loadCharms() {
+  const res = await fetch("/api/charms");
+  allCharms = await res.json();
+  render();
+}
+
+function fmtPrice(p) {
+  if (p === null || p === undefined) return '<span class="muted">sin datos</span>';
+  return p.toFixed(2);
+}
+
+function fmtDate(d) {
+  if (!d) return '<span class="muted">nunca</span>';
+  return new Date(d).toLocaleString();
+}
+
+function render() {
+  const eventFilter = document.getElementById("eventFilter").value;
+  const search = document.getElementById("search").value.toLowerCase();
+
+  let rows = allCharms.filter(c => {
+    if (eventFilter && c.event !== eventFilter) return false;
+    if (search) {
+      const hay = `${c.player||""} ${c.map||""} ${c.team0||""} ${c.team1||""} ${c.stage||""}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    let av = a[sortKey], bv = b[sortKey];
+    if (av === null || av === undefined) av = -Infinity;
+    if (bv === null || bv === undefined) bv = -Infinity;
+    if (av < bv) return -1 * sortDir;
+    if (av > bv) return 1 * sortDir;
+    return 0;
+  });
+
+  const tbody = document.getElementById("charmsBody");
+  tbody.innerHTML = rows.map(c => `
+    <tr>
+      <td><input type="checkbox" class="rowcheck" data-name="${encodeURIComponent(c.market_hash_name)}"></td>
+      <td>${c.market_hash_name}</td>
+      <td>${c.event}</td>
+      <td>${c.map || ""}</td>
+      <td>${c.player || ""}</td>
+      <td class="muted">${c.team0 || ""} vs ${c.team1 || ""}</td>
+      <td>${c.stage || ""}</td>
+      <td class="price">${fmtPrice(c.base_price)}</td>
+      <td class="muted">${fmtDate(c.last_updated)}</td>
+    </tr>
+  `).join("");
+
+  document.querySelectorAll(".rowcheck").forEach(cb => cb.addEventListener("change", updateSelectedCount));
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  const checked = document.querySelectorAll(".rowcheck:checked");
+  document.getElementById("selectedCount").textContent = `${checked.length} seleccionados`;
+  document.getElementById("compareBtn").disabled = checked.length === 0;
+}
+
+document.getElementById("eventFilter").addEventListener("change", render);
+document.getElementById("search").addEventListener("input", render);
+document.getElementById("refreshBtn").addEventListener("click", () => { loadStats(); loadCharms(); });
+document.getElementById("selectAll").addEventListener("change", (e) => {
+  document.querySelectorAll(".rowcheck").forEach(cb => cb.checked = e.target.checked);
+  updateSelectedCount();
+});
+
+document.querySelectorAll("th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+    render();
+  });
+});
+
+document.getElementById("compareBtn").addEventListener("click", async () => {
+  const checked = [...document.querySelectorAll(".rowcheck:checked")].map(cb => decodeURIComponent(cb.dataset.name));
+  if (checked.length === 0) return;
+
+  document.getElementById("loading-banner").style.display = "block";
+  document.getElementById("compareBtn").disabled = true;
+
+  try {
+    const res = await fetch("/api/listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ market_hash_names: checked }),
+    });
+    const data = await res.json();
+    renderResults(data);
+  } catch (e) {
+    document.getElementById("results").innerHTML = `<p style="color:var(--red)">Error: ${e}</p>`;
+  } finally {
+    document.getElementById("loading-banner").style.display = "none";
+    document.getElementById("compareBtn").disabled = false;
+  }
+});
+
+function renderResults(data) {
+  const el = document.getElementById("results");
+  el.innerHTML = "<h2>Listados encontrados</h2>" + data.map(r => {
+    if (r.status === "sin_armas") {
+      return `<div class="result-card"><strong>${r.keychain}</strong><br><span class="muted">${r.message}</span></div>`;
+    }
+    const baseText = r.base_price !== null && r.base_price !== undefined
+      ? `<span class="badge">precio base del colgante: ${r.base_price.toFixed(2)}</span>`
+      : `<span class="badge muted">sin precio base aún</span>`;
+
+    const rows = r.listings.length
+      ? r.listings.map(f => `
+          <tr>
+            <td>${f.weapon}</td>
+            <td class="price">${f.listing_price.toFixed(2)}</td>
+            <td class="muted">${f.listing_id}</td>
+          </tr>`).join("")
+      : `<tr><td colspan="3" class="muted">No hay listados activos con este colgante puesto ahora mismo.</td></tr>`;
+
+    return `
+      <div class="result-card">
+        <strong>${r.keychain}</strong>
+        ${baseText}
+        <table style="margin-top:8px;">
+          <thead><tr><th>Arma</th><th class="price">Precio listado</th><th>Listing ID</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }).join("");
+}
+
+loadStats();
+loadCharms();
+setInterval(loadStats, 30000);
+</script>
+</body>
+</html>
