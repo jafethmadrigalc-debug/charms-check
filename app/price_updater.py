@@ -40,10 +40,13 @@ async def price_update_loop():
             total, per_item_delay, PRICE_CYCLE_HOURS,
         )
 
+        successes = 0
+        failures = 0
+        loop = asyncio.get_event_loop()
+
         for i, charm in enumerate(pending, 1):
             name = charm["market_hash_name"]
             try:
-                loop = asyncio.get_event_loop()
                 data = await loop.run_in_executor(
                     None,
                     steam_client.get_charm_market_data,
@@ -54,14 +57,27 @@ async def price_update_loop():
                 db.update_market_data(
                     name, data["base_price"], data["item_nameid"], data["highest_buy_order"]
                 )
+                successes += 1
                 if i % 25 == 0:
                     logger.info(
-                        "Progreso: %s/%s (%s = venta %s, compra %s)",
-                        i, total, name, data["base_price"], data["highest_buy_order"],
+                        "Progreso: %s/%s (%s exitosos, %s fallidos) — último: %s = venta %s, compra %s",
+                        i, total, successes, failures, name, data["base_price"], data["highest_buy_order"],
                     )
             except Exception as e:
+                failures += 1
                 logger.warning("Error actualizando %s: %s", name, e)
+                # IMPORTANTE: marcamos el intento aunque haya fallado, para
+                # que este colgante no bloquee el resto de la cola en el
+                # próximo ciclo — su turno vuelve más adelante, no de
+                # inmediato.
+                try:
+                    await loop.run_in_executor(None, db.mark_update_attempted, name)
+                except Exception:
+                    pass
 
             await asyncio.sleep(per_item_delay)
 
-        logger.info("Ciclo de actualización completo.")
+        logger.info(
+            "Ciclo de actualización completo: %s exitosos, %s fallidos de %s totales.",
+            successes, failures, total,
+        )

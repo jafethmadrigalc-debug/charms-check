@@ -64,7 +64,21 @@ def steam_get(url: str, params: dict, retries: int = 5, min_delay: float = 1.5):
             )
         resp.raise_for_status()
         time.sleep(min_delay)
-        return resp.json()
+
+        # Muchas combinaciones de arma+desgaste consultadas simplemente no
+        # existen o no tienen listados activos — Steam a veces responde con
+        # cuerpo vacío o HTML en vez de JSON en esos casos (no es un error
+        # real, solo "no hay nada que mostrar"). En vez de que esto rompa
+        # todo el ciclo con una excepción ruidosa, lo tratamos como "sin
+        # datos" y seguimos.
+        try:
+            return resp.json()
+        except ValueError:
+            logger.debug(
+                "Respuesta no-JSON de %s (probablemente sin listados/datos): %r",
+                url, resp.text[:120],
+            )
+            return {}
     raise RuntimeError(
         f"No se pudo obtener {url} tras {retries} intentos (último status: {last_status})"
     )

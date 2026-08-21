@@ -166,6 +166,23 @@ def update_price(market_hash_name, price):
         )
 
 
+def mark_update_attempted(market_hash_name):
+    """
+    Marca que se INTENTÓ actualizar este colgante (sin importar si falló),
+    actualizando solo 'last_updated' y sin tocar el precio que ya tuviera
+    guardado. Esto es clave para que el ciclo avance: si un colgante falla
+    (por ejemplo por un 429 de Steam) y nunca se marca como intentado,
+    siempre vuelve a aparecer PRIMERO en la cola la próxima vuelta —
+    dejando el ciclo atascado en los mismos primeros ítems sin nunca
+    avanzar al resto.
+    """
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE charms SET last_updated = ? WHERE market_hash_name = ?",
+            (datetime.now(timezone.utc).isoformat(), market_hash_name),
+        )
+
+
 def update_market_data(market_hash_name, base_price, item_nameid, highest_buy_order):
     with get_conn() as conn:
         now = datetime.now(timezone.utc).isoformat()
