@@ -17,6 +17,10 @@ primary_region = "mia"  # Miami suele ser lo más cercano a Costa Rica; cámbial
   source = "charms_data"
   destination = "/data"
 
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
 [http_service]
   internal_port = 8080
   force_https = true
