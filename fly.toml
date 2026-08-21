@@ -1,41 +1,31 @@
-# fly.toml app configuration file generated for charms-check on 2026-08-21T03:48:46Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
-app = 'charms-check'
-primary_region = 'dfw'
+# Cambia "app" por el nombre único que quieras usar en Fly (ej. cs2-colgantes-tunombre)
+app = "cs2-colgantes-monitor"
+primary_region = "mia"  # Miami suele ser lo más cercano a Costa Rica; cámbialo si quieres
 
 [build]
 
 [env]
-  DB_PATH = '/data/charms.db'
-  PRICE_CYCLE_HOURS = '1.5'
-  REMOVE_KEYCHAIN_COST = '150'
-  STEAM_COUNTRY = 'CR'
-  STEAM_CURRENCY = '1'
-  WEAR_CONDITIONS = 'Field-Tested'
+  PRICE_CYCLE_HOURS = "1.5"
+  REMOVE_KEYCHAIN_COST = "150"
+  STEAM_CURRENCY = "1"
+  STEAM_COUNTRY = "CR"
+  WEAR_CONDITIONS = "Field-Tested"
+  DB_PATH = "/data/charms.db"
 
 [[mounts]]
-  source = 'charms_data'
-  destination = '/data'
+  source = "charms_data"
+  destination = "/data"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'off'
+  auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
 
   [[http_service.checks]]
-    interval = '30s'
-    timeout = '10s'
-    grace_period = '15s'
-    method = 'GET'
-    path = '/api/stats'
-
-[[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 256
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    timeout = "10s"
+    path = "/api/stats"
