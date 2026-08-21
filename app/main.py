@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from . import db, steam_client
 from .price_updater import price_update_loop
+from .alerter import alert_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger("main")
@@ -24,7 +25,8 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 async def startup():
     db.init_db()
     asyncio.create_task(price_update_loop())
-    logger.info("App iniciada. Actualizador de precios corriendo en segundo plano.")
+    asyncio.create_task(alert_loop())
+    logger.info("App iniciada. Actualizador de precios y alertador corriendo en segundo plano.")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -58,11 +60,64 @@ async def api_charms(event: str = None):
                 "stage": c["stage"],
                 "player": c["player"],
                 "base_price": c["base_price"],
+                "highest_buy_order": c["highest_buy_order"],
                 "last_updated": c["last_updated"],
                 "weapons_count": len(json.loads(c["weapons_json"] or "[]")),
+                "watched": bool(c["watched"]),
             }
         )
     return out
+
+
+class WatchRequest(BaseModel):
+    market_hash_names: list[str]
+    watched: bool
+
+
+@app.post("/api/watch")
+async def api_watch(req: WatchRequest):
+    """Marca o desmarca colgantes como 'vigilados' — los vigilados son los
+    que el alertador de fondo revisa para mandar notificaciones a Discord."""
+    loop = asyncio.get_event_loop()
+    for name in req.market_hash_names:
+        await loop.run_in_executor(None, db.set_watch, name, req.watched)
+    return {"ok": True, "updated": len(req.market_hash_names), "watched": req.watched}
+
+
+class SettingsModel(BaseModel):
+    discord_webhook_url: str = None
+    remove_keychain_cost: float = None
+    alerts_enabled: bool = None
+    alert_interval_minutes: float = None
+
+
+@app.get("/api/settings")
+async def api_get_settings():
+    loop = asyncio.get_event_loop()
+    settings = await loop.run_in_executor(None, db.get_settings)
+    return {
+        "discord_webhook_url": settings["discord_webhook_url"],
+        "remove_keychain_cost": float(settings["remove_keychain_cost"]),
+        "alerts_enabled": settings["alerts_enabled"] == "true",
+        "alert_interval_minutes": float(settings["alert_interval_minutes"]),
+    }
+
+
+@app.post("/api/settings")
+async def api_save_settings(req: SettingsModel):
+    updates = {}
+    if req.discord_webhook_url is not None:
+        updates["discord_webhook_url"] = req.discord_webhook_url
+    if req.remove_keychain_cost is not None:
+        updates["remove_keychain_cost"] = req.remove_keychain_cost
+    if req.alerts_enabled is not None:
+        updates["alerts_enabled"] = "true" if req.alerts_enabled else "false"
+    if req.alert_interval_minutes is not None:
+        updates["alert_interval_minutes"] = req.alert_interval_minutes
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, db.save_settings, updates)
+    return await api_get_settings()
 
 
 class ListingsRequest(BaseModel):
@@ -93,6 +148,7 @@ async def api_listings(req: ListingsRequest):
                     "keychain": keychain,
                     "description": charm.get("description"),
                     "base_price": base_price,
+                    "highest_buy_order": charm["highest_buy_order"],
                     "status": "sin_armas",
                     "message": "No hay lista de armas asociada a este colgante todavía.",
                     "listings": [],
@@ -131,6 +187,7 @@ async def api_listings(req: ListingsRequest):
                 "keychain": keychain,
                 "description": charm.get("description"),
                 "base_price": base_price,
+                "highest_buy_order": charm["highest_buy_order"],
                 "status": "ok",
                 "listings": all_listings,
             }
