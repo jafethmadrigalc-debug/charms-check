@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
@@ -101,10 +102,10 @@ async def api_watch(req: WatchRequest):
 
 
 class SettingsModel(BaseModel):
-    discord_webhook_url: str = None
-    remove_keychain_cost: float = None
-    alerts_enabled: bool = None
-    alert_interval_minutes: float = None
+    discord_webhook_url: Optional[str] = None
+    remove_keychain_cost: Optional[float] = None
+    alerts_enabled: Optional[bool] = None
+    alert_interval_minutes: Optional[float] = None
 
 
 @app.get("/api/settings")
@@ -222,9 +223,9 @@ async def api_export():
 
 class IngestItem(BaseModel):
     market_hash_name: str
-    base_price: float = None
-    item_nameid: str = None
-    highest_buy_order: float = None
+    base_price: Optional[float] = None
+    item_nameid: Optional[str] = None
+    highest_buy_order: Optional[float] = None
 
 
 class IngestRequest(BaseModel):
