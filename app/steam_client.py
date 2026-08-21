@@ -4,10 +4,14 @@ Solo lectura de datos públicos (priceoverview y listings/render). No inicia
 sesión, no compra, no vende.
 """
 
+import logging
 import os
 import re
+import threading
 import time
 import requests
+
+logger = logging.getLogger("steam_client")
 
 CURRENCY = int(os.environ.get("STEAM_CURRENCY", "1"))  # 1 = USD
 COUNTRY = os.environ.get("STEAM_COUNTRY", "CR")
@@ -20,18 +24,50 @@ STEAM_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
+# Espacio MÍNIMO global entre CUALQUIER par de peticiones a Steam, sin
+# importar desde qué función salgan. Servidores en datacenters (como Fly)
+# reciben límites de tasa mucho más estrictos de Steam que una conexión
+# doméstica normal, así que este valor es intencionalmente conservador.
+# Ajustable con la variable de entorno STEAM_MIN_INTERVAL si sigue dando 429.
+GLOBAL_MIN_INTERVAL = float(os.environ.get("STEAM_MIN_INTERVAL", "3.0"))
+_rate_lock = threading.Lock()
+_last_request_ts = [0.0]
 
-def steam_get(url: str, params: dict, retries: int = 3, min_delay: float = 1.5):
+
+def _throttle():
+    with _rate_lock:
+        now = time.time()
+        wait = _last_request_ts[0] + GLOBAL_MIN_INTERVAL - now
+        if wait > 0:
+            time.sleep(wait)
+        _last_request_ts[0] = time.time()
+
+
+def steam_get(url: str, params: dict, retries: int = 5, min_delay: float = 1.5):
+    last_status = None
     for attempt in range(1, retries + 1):
+        _throttle()
         resp = requests.get(url, params=params, headers=STEAM_HEADERS, timeout=15)
+        last_status = resp.status_code
         if resp.status_code == 429:
-            wait = 10 * attempt
+            wait = 20 * attempt
+            logger.warning(
+                "429 de Steam en intento %s/%s para %s. Esperando %ss...",
+                attempt, retries, url, wait,
+            )
             time.sleep(wait)
             continue
+        if resp.status_code >= 400:
+            logger.warning(
+                "Steam respondió %s para %s (intento %s/%s): %s",
+                resp.status_code, url, attempt, retries, resp.text[:200],
+            )
         resp.raise_for_status()
         time.sleep(min_delay)
         return resp.json()
-    raise RuntimeError(f"No se pudo obtener {url} tras {retries} intentos")
+    raise RuntimeError(
+        f"No se pudo obtener {url} tras {retries} intentos (último status: {last_status})"
+    )
 
 
 def parse_price(price_str):
@@ -78,15 +114,28 @@ def get_item_nameid(market_hash_name: str, min_delay: float = 1.5):
     datos) para no tener que volver a pedirlo.
     """
     url = f"https://steamcommunity.com/market/listings/730/{requests.utils.quote(market_hash_name)}"
-    for attempt in range(1, 4):
+    last_status = None
+    for attempt in range(1, 6):
+        _throttle()
         resp = requests.get(url, headers=STEAM_HEADERS, timeout=15)
+        last_status = resp.status_code
         if resp.status_code == 429:
-            time.sleep(10 * attempt)
+            wait = 20 * attempt
+            logger.warning(
+                "429 de Steam obteniendo item_nameid de %s (intento %s/5). Esperando %ss...",
+                market_hash_name, attempt, wait,
+            )
+            time.sleep(wait)
             continue
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            logger.warning(
+                "Steam respondió %s obteniendo item_nameid de %s", resp.status_code, market_hash_name
+            )
+            return None
         time.sleep(min_delay)
         match = ITEM_NAMEID_RE.search(resp.text)
         return match.group(1) if match else None
+    logger.warning("No se pudo obtener item_nameid de %s (último status: %s)", market_hash_name, last_status)
     return None
 
 

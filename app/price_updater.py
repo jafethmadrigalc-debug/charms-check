@@ -26,10 +26,12 @@ async def price_update_loop():
             continue
 
         cycle_seconds = PRICE_CYCLE_HOURS * 3600
-        # Cada colgante ahora implica hasta 3 peticiones (precio, página del
-        # ítem para el item_nameid la primera vez, y libro de órdenes), así
-        # que el tiempo de espera entre colgantes puede ser un poco menor
-        # (steam_get ya trae su propio min_delay por petición).
+        # Cada colgante implica hasta 3 peticiones (precio, página del ítem
+        # para el item_nameid la primera vez, y libro de órdenes). Además,
+        # steam_client impone un espacio mínimo GLOBAL de ~3s entre
+        # CUALQUIER petición a Steam (ver GLOBAL_MIN_INTERVAL), así que el
+        # ciclo real puede tardar más que este objetivo si Steam está
+        # limitando la tasa — eso es intencional y evita más bloqueos 429.
         per_item_delay = max(cycle_seconds / total, 0.5)
 
         logger.info(
