@@ -1,0 +1,31 @@
+# Cambia "app" por el nombre único que quieras usar en Fly (ej. cs2-colgantes-tunombre)
+app = "cs2-colgantes-monitor"
+primary_region = "mia"  # Miami suele ser lo más cercano a Costa Rica; cámbialo si quieres
+
+[build]
+
+[env]
+  PRICE_CYCLE_HOURS = "1.5"
+  REMOVE_KEYCHAIN_COST = "150"
+  STEAM_CURRENCY = "1"
+  STEAM_COUNTRY = "CR"
+  WEAR_CONDITIONS = "Field-Tested"
+  DB_PATH = "/data/charms.db"
+
+[[mounts]]
+  source = "charms_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    timeout = "10s"
+    path = "/api/stats"
