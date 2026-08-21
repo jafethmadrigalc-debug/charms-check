@@ -11,6 +11,7 @@ primary_region = "mia"  # Miami suele ser lo más cercano a Costa Rica; cámbial
   STEAM_COUNTRY = "CR"
   WEAR_CONDITIONS = "Field-Tested"
   DB_PATH = "/data/charms.db"
+  STEAM_MIN_INTERVAL = "3.0"
 
 [[mounts]]
   source = "charms_data"
