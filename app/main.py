@@ -3,7 +3,7 @@ import json
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -20,13 +20,29 @@ app = FastAPI(title="CS2 Colgantes Monitor")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+# El actualizador automático DENTRO de Fly suele quedar bloqueado por Steam
+# (Steam es agresivo bloqueando IPs de datacenters). Por defecto queda
+# apagado; en su lugar usa local_price_pusher.py desde tu propia
+# computadora, que empuja los precios al endpoint /api/ingest de abajo.
+# Si quieres intentarlo de nuevo desde el servidor, pon
+# ENABLE_SERVER_PRICE_UPDATES=true como variable de entorno.
+ENABLE_SERVER_PRICE_UPDATES = os.environ.get("ENABLE_SERVER_PRICE_UPDATES", "false") == "true"
+INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
+
 
 @app.on_event("startup")
 async def startup():
     db.init_db()
-    asyncio.create_task(price_update_loop())
+    if ENABLE_SERVER_PRICE_UPDATES:
+        asyncio.create_task(price_update_loop())
+        logger.info("Actualizador de precios DEL SERVIDOR activado (ENABLE_SERVER_PRICE_UPDATES=true).")
+    else:
+        logger.info(
+            "Actualizador de precios del servidor DESACTIVADO. Usa local_price_pusher.py "
+            "desde tu computadora para alimentar /api/ingest."
+        )
     asyncio.create_task(alert_loop())
-    logger.info("App iniciada. Actualizador de precios y alertador corriendo en segundo plano.")
+    logger.info("App iniciada. Alertador corriendo en segundo plano.")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -202,3 +218,42 @@ async def api_export():
     descargar como JSON, por si quieres guardarla aparte."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, db.get_all_charms)
+
+
+class IngestItem(BaseModel):
+    market_hash_name: str
+    base_price: float = None
+    item_nameid: str = None
+    highest_buy_order: float = None
+
+
+class IngestRequest(BaseModel):
+    items: list[IngestItem]
+
+
+@app.post("/api/ingest")
+async def api_ingest(req: IngestRequest, x_ingest_token: str = Header(default="")):
+    """
+    Recibe precios ya consultados por local_price_pusher.py (corriendo en
+    tu propia computadora, con una IP residencial que Steam no bloquea) y
+    los guarda en la base de datos del servidor. Protegido con un token
+    simple para que no cualquiera pueda escribir en tu base de datos.
+    """
+    if not INGEST_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="INGEST_TOKEN no está configurado en el servidor. Defínelo como secret en Fly.",
+        )
+    if x_ingest_token != INGEST_TOKEN:
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    loop = asyncio.get_event_loop()
+    updated = 0
+    for item in req.items:
+        await loop.run_in_executor(
+            None, db.update_market_data, item.market_hash_name,
+            item.base_price, item.item_nameid, item.highest_buy_order,
+        )
+        updated += 1
+
+    return {"ok": True, "updated": updated}
