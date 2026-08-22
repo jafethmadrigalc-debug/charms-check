@@ -139,7 +139,7 @@
   </div>
   <div class="muted" style="font-size:12px; margin-top:10px;">
     Marca el 🔔 en la tabla para "vigilar" un colgante — el sistema lo revisa en segundo plano cada cierto tiempo y te avisa por Discord solo cuando encuentra una oportunidad nueva (no repite la misma alerta dos veces).
-    <br><b>Precio venta</b> = lo más barato que alguien está pidiendo por el colgante suelto ahora mismo. <b>Orden compra</b> = lo más alto que alguien ya ofreció pagar por él (si vendes ahí, te lo compran al instante a ese precio, sin esperar comprador).
+    <br><b>Precio venta</b> = lo más barato que alguien está pidiendo por el colgante suelto ahora mismo (según el historial de ventas recientes de Steam).
   </div>
 </div>
 
@@ -178,7 +178,6 @@
       <th>Partido</th>
       <th data-sort="stage">Etapa</th>
       <th data-sort="base_price" class="price">Precio venta</th>
-      <th data-sort="highest_buy_order" class="price">Orden compra</th>
       <th>Actualizado</th>
     </tr>
   </thead>
@@ -190,7 +189,7 @@
 
 <script>
 let allCharms = [];
-let sortKey = "highest_buy_order";
+let sortKey = "base_price";
 let sortDir = -1;
 let currentSettings = null;
 
@@ -279,7 +278,7 @@ function render() {
 
   const tbody = document.getElementById("charmsBody");
   if (rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" class="empty-state">Sin resultados para este filtro.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-state">Sin resultados para este filtro.</td></tr>`;
     return;
   }
 
@@ -294,7 +293,6 @@ function render() {
       <td class="muted">${c.team0 || ""} vs ${c.team1 || ""}</td>
       <td>${c.stage || ""}</td>
       <td class="price">${fmtPrice(c.base_price)}</td>
-      <td class="price">${fmtPrice(c.highest_buy_order)}</td>
       <td class="muted">${fmtDate(c.last_updated)}</td>
     </tr>
   `).join("");
@@ -371,14 +369,11 @@ document.getElementById("profitToggle").addEventListener("change", () => {
 });
 
 function referencePrice(r) {
-  // Preferimos la orden de compra (venta garantizada e instantánea) sobre
-  // el precio de venta más bajo (que solo es lo que otros están pidiendo,
-  // sin garantía de que alguien te compre a ti a ese precio).
-  if (r.highest_buy_order !== null && r.highest_buy_order !== undefined) {
-    return { value: r.highest_buy_order, source: "orden de compra (garantizada)" };
-  }
+  // La ganancia se calcula contra el precio de venta del colgante.
+  // Ojo: es una referencia, no una venta garantizada — es lo que otros
+  // están pidiendo, no lo que alguien ya se comprometió a pagarte.
   if (r.base_price !== null && r.base_price !== undefined) {
-    return { value: r.base_price, source: "precio de venta (no garantizado)" };
+    return { value: r.base_price, source: "precio de venta (referencia)" };
   }
   return null;
 }
@@ -398,9 +393,6 @@ function renderResults(data) {
     const baseBadge = r.base_price !== null && r.base_price !== undefined
       ? `<span class="badge">venta más baja: ${r.base_price.toFixed(2)}</span>`
       : `<span class="badge muted">sin precio de venta aún</span>`;
-    const buyOrderBadge = r.highest_buy_order !== null && r.highest_buy_order !== undefined
-      ? `<span class="badge" style="border-color:#3fb95055;color:#3fb950;">orden de compra: ${r.highest_buy_order.toFixed(2)}</span>`
-      : `<span class="badge muted">sin orden de compra</span>`;
     const costBadge = showProfit ? `<span class="badge">costo de quitar: ${removeCost}</span>` : "";
     const refBadge = showProfit && ref
       ? `<span class="badge" style="border-color:#58a6ff55;color:#58a6ff;">ganancia calculada con: ${ref.source}</span>`
@@ -435,7 +427,7 @@ function renderResults(data) {
       <div class="result-card">
         <div class="result-header">
           <strong>${r.keychain}</strong>
-          <div>${baseBadge} ${buyOrderBadge} ${costBadge} ${refBadge}</div>
+          <div>${baseBadge} ${costBadge} ${refBadge}</div>
         </div>
         <table>
           <thead><tr>${headerCols}</tr></thead>
