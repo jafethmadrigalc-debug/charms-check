@@ -51,13 +51,12 @@ async def alert_loop():
         for charm in charms:
             keychain = charm["market_hash_name"]
             base_price = charm["base_price"]
-            buy_order = charm["highest_buy_order"]
             weapons = __import__("json").loads(charm["weapons_json"] or "[]")
 
-            # Preferimos la orden de compra (venta garantizada e instantánea)
-            # sobre el precio de venta más bajo (que no garantiza que te
-            # compren a ti a ese precio).
-            reference_price = buy_order if buy_order is not None else base_price
+            # La ganancia se calcula contra el precio de venta del colgante.
+            # Es una referencia (lo que otros están pidiendo), no una venta
+            # garantizada.
+            reference_price = base_price
 
             if reference_price is None or not weapons:
                 continue
@@ -86,7 +85,7 @@ async def alert_loop():
 
                         profit = reference_price - remove_cost - listing_price
                         if profit > 0:
-                            price_source = "orden de compra (garantizada)" if buy_order is not None else "precio de venta (no garantizado)"
+                            price_source = "precio de venta (referencia)"
                             send_discord(
                                 webhook_url,
                                 f"🎯 Oportunidad: **{weapon_full}**\n"
