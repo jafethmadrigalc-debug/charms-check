@@ -49,6 +49,10 @@ def init_db():
             """
         )
         _add_column_if_missing(conn, "charms", "item_nameid", "TEXT")
+        _add_column_if_missing(conn, "charms", "image", "TEXT")
+        _add_column_if_missing(conn, "charms", "video", "TEXT")
+        _add_column_if_missing(conn, "charms", "thumbnail", "TEXT")
+        _add_column_if_missing(conn, "charms", "type", "TEXT")
         _add_column_if_missing(conn, "charms", "highest_buy_order", "REAL")
         _add_column_if_missing(conn, "charms", "buy_order_updated", "TEXT")
         conn.execute(
@@ -99,8 +103,9 @@ def seed_from_json(conn):
             """
             INSERT OR IGNORE INTO charms
                 (market_hash_name, event, map, team0, team1, stage, player,
-                 description, weapons_json, base_price, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+                 description, weapons_json, base_price, last_updated,
+                 image, video, thumbnail, type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
             """,
             (
                 c["market_hash_name"],
@@ -112,6 +117,10 @@ def seed_from_json(conn):
                 c.get("player"),
                 c.get("description"),
                 json.dumps(c.get("weapons", [])),
+                c.get("image"),
+                c.get("video"),
+                c.get("thumbnail"),
+                c.get("type"),
             ),
         )
 
@@ -284,3 +293,29 @@ def mark_notified(listing_id: str, market_hash_name: str):
             "INSERT OR REPLACE INTO alert_log (listing_id, market_hash_name, notified_at) VALUES (?, ?, ?)",
             (listing_id, market_hash_name, datetime.now(timezone.utc).isoformat()),
         )
+
+
+def backfill_media(charms_list):
+    """
+    Rellena image/video/thumbnail/type en filas que ya existían antes de
+    que se agregaran esas columnas (bases desplegadas con versiones
+    anteriores). No toca precios ni nada más.
+    """
+    with get_conn() as conn:
+        updated = 0
+        for c in charms_list:
+            cur = conn.execute(
+                """
+                UPDATE charms
+                SET image = COALESCE(image, ?),
+                    video = COALESCE(video, ?),
+                    thumbnail = COALESCE(thumbnail, ?),
+                    type = COALESCE(type, ?)
+                WHERE market_hash_name = ?
+                  AND (image IS NULL OR video IS NULL OR thumbnail IS NULL OR type IS NULL)
+                """,
+                (c.get("image"), c.get("video"), c.get("thumbnail"),
+                 c.get("type"), c["market_hash_name"]),
+            )
+            updated += cur.rowcount
+        return updated

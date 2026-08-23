@@ -34,6 +34,16 @@ INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
 @app.on_event("startup")
 async def startup():
     db.init_db()
+    # Rellena video/imagen en bases que vienen de versiones anteriores.
+    try:
+        seed_path = os.path.join(os.path.dirname(__file__), "..", "charms_database.json")
+        if os.path.exists(seed_path):
+            with open(seed_path, "r", encoding="utf-8") as f:
+                filled = db.backfill_media(json.load(f))
+            if filled:
+                logger.info("Metadatos de media rellenados en %s colgantes.", filled)
+    except Exception as e:
+        logger.warning("No se pudo rellenar metadatos de media: %s", e)
     if ENABLE_SERVER_PRICE_UPDATES:
         asyncio.create_task(price_update_loop())
         logger.info("Actualizador de precios DEL SERVIDOR activado (ENABLE_SERVER_PRICE_UPDATES=true).")
@@ -77,10 +87,13 @@ async def api_charms(event: str = None):
                 "stage": c["stage"],
                 "player": c["player"],
                 "base_price": c["base_price"],
-                "highest_buy_order": c["highest_buy_order"],
                 "last_updated": c["last_updated"],
                 "weapons_count": len(json.loads(c["weapons_json"] or "[]")),
                 "watched": bool(c["watched"]),
+                "image": c["image"],
+                "video": c["video"],
+                "thumbnail": c["thumbnail"],
+                "type": c["type"],
             }
         )
     return out
